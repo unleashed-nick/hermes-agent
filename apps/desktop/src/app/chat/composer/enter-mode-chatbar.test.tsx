@@ -9,6 +9,8 @@ import { $composerEnterSends } from '@/store/composer-prefs'
 
 import { ChatBar } from './index'
 
+const queueCurrentDraftMock = vi.hoisted(() => vi.fn(() => true))
+
 vi.mock('@assistant-ui/react', () => ({
   ComposerPrimitive: {
     Input: ({ children }: PropsWithChildren<{ asChild?: boolean }>) => children,
@@ -132,7 +134,7 @@ vi.mock('./hooks/use-composer-queue', () => ({
     drainNextQueued: vi.fn(),
     editingQueuedPrompt: null,
     exitQueuedEdit: vi.fn(() => false),
-    queueCurrentDraft: vi.fn(() => false),
+    queueCurrentDraft: queueCurrentDraftMock,
     queueEdit: null,
     queuedPrompts: [],
     sendQueuedNow: vi.fn(),
@@ -212,6 +214,7 @@ function renderChatBar(props: Partial<Parameters<typeof ChatBar>[0]> = {}) {
 
 afterEach(() => {
   cleanup()
+  queueCurrentDraftMock.mockClear()
   $composerEnterSends.set(true)
   mainComposerScope.clear()
 })
@@ -223,7 +226,9 @@ describe('ChatBar composer Enter mode', () => {
     editor.textContent = 'send me'
     fireEvent.keyDown(editor, { key: 'Enter' })
 
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('send me', { attachments: [] }))
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith('send me', { attachments: [], composerScope: null })
+    )
   })
 
   it('uses config-driven multiline mode: Enter inserts a newline and does not submit', () => {
@@ -244,7 +249,47 @@ describe('ChatBar composer Enter mode', () => {
     editor.textContent = 'send from multiline mode'
     fireEvent.keyDown(editor, { key: 'Enter', metaKey: true })
 
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('send from multiline mode', { attachments: [] }))
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith('send from multiline mode', {
+        attachments: [],
+        composerScope: null
+      })
+    )
+  })
+
+  it('uses config-driven multiline mode: Cmd/Ctrl+Enter queues a normal prompt while busy', () => {
+    $composerEnterSends.set(false)
+    const { editor, onSteer, onSubmit } = renderChatBar({ busy: true })
+
+    editor.textContent = 'follow up later'
+    fireEvent.keyDown(editor, { key: 'Enter', metaKey: true })
+
+    expect(queueCurrentDraftMock).toHaveBeenCalledOnce()
+    expect(onSteer).not.toHaveBeenCalled()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('uses config-driven multiline mode: Cmd/Ctrl+Enter executes slash commands immediately while busy', async () => {
+    $composerEnterSends.set(false)
+    const { editor, onSubmit } = renderChatBar({ busy: true })
+
+    editor.textContent = '/help'
+    fireEvent.keyDown(editor, { key: 'Enter', metaKey: true })
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('/help', { composerScope: null }))
+    expect(queueCurrentDraftMock).not.toHaveBeenCalled()
+  })
+
+  it('does not send or insert a newline when Enter confirms an IME composition', () => {
+    $composerEnterSends.set(false)
+    const { editor, onSubmit } = renderChatBar()
+
+    fireEvent.compositionStart(editor)
+    editor.textContent = '日本語'
+    fireEvent.keyDown(editor, { key: 'Enter' })
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(editor.textContent).toBe('日本語')
   })
 
   it('uses config-driven multiline mode: Shift+Enter steers a live run when steerable', () => {

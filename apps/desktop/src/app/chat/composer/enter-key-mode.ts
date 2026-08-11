@@ -1,6 +1,7 @@
-export type ComposerEnterKeyIntent = 'native' | 'newline' | 'noop' | 'steer' | 'submit'
+export type ComposerEnterKeyIntent = 'native' | 'newline' | 'noop' | 'queue' | 'steer' | 'submit'
 
 export interface ComposerEnterKeyIntentInput {
+  busy?: boolean
   canSteer?: boolean
   enterSends: boolean
   key: string
@@ -14,6 +15,7 @@ export interface ComposerEnterKeyIntentInput {
  * before this helper in the composer keydown handler.
  */
 export function resolveComposerEnterKeyIntent({
+  busy = false,
   canSteer = false,
   enterSends,
   key,
@@ -26,14 +28,14 @@ export function resolveComposerEnterKeyIntent({
 
   if (enterSends) {
     if (modKey && !shiftKey) {
-      return canSteer ? 'steer' : 'noop'
+      return busy ? 'queue' : 'noop'
     }
 
     return shiftKey ? 'native' : 'submit'
   }
 
   if (modKey && !shiftKey) {
-    return 'submit'
+    return busy ? 'queue' : 'submit'
   }
 
   if (shiftKey) {
